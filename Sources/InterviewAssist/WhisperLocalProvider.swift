@@ -88,13 +88,27 @@ final class WhisperLocalProvider: STTProvider {
             return text.trimmingCharacters(in: .whitespaces)
         }
 
-        guard !result.isEmpty else { return }
+        let cleaned = WhisperText.sanitize(result)
+        guard !cleaned.isEmpty else { return }
         lock.lock()
         if recognized.isEmpty {
-            recognized = result
+            recognized = cleaned
         } else {
-            recognized += " " + result
+            recognized += " " + cleaned
         }
         lock.unlock()
+    }
+}
+
+enum WhisperText {
+    /// Whisper emits this token for silence; it is not real speech.
+    static func sanitize(_ text: String) -> String {
+        text.replacingOccurrences(
+            of: #"\[BLANK_AUDIO\]"#,
+            with: " ",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

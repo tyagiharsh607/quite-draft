@@ -82,7 +82,7 @@ final class TranscriptStore: ObservableObject {
         pollTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let stt = self.stt else { return }
-                let new = stt.drainPendingText()
+                let new = WhisperText.sanitize(stt.drainPendingText())
                 guard !new.isEmpty else { return }
                 debugLog("[stt] recognized: \(new)")
                 self.backgroundBuffer += (self.backgroundBuffer.isEmpty ? "" : " ") + new
@@ -95,6 +95,7 @@ final class TranscriptStore: ObservableObject {
 
     /// Freeze the current background buffer into the editable box (non-destructive).
     func grab() {
+        backgroundBuffer = WhisperText.sanitize(backgroundBuffer)
         debugLog("[store] grab() -> '\(backgroundBuffer)'")
         editableText = backgroundBuffer
     }
