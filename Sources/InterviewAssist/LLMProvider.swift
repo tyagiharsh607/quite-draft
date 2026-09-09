@@ -1,9 +1,16 @@
 import Foundation
 
-struct ChatMessage {
+struct ChatMessage: Identifiable {
     enum Role: String { case system, user, assistant }
+    let id: UUID
     let role: Role
-    let content: String
+    var content: String
+
+    init(role: Role, content: String, id: UUID = UUID()) {
+        self.id = id
+        self.role = role
+        self.content = content
+    }
 }
 
 /// Abstraction over the answering LLM so the backing provider/model can be

@@ -19,14 +19,17 @@ func debugLog(_ message: String) {
 @MainActor
 final class TranscriptStore: ObservableObject {
     @Published var editableText: String = ""
-    @Published var answer: String = ""
     @Published var isSending: Bool = false
     @Published var statusMessage: String = ""
+    @Published private(set) var history: [ChatMessage] = []
+
+    var transcript: [ChatMessage] {
+        history.filter { $0.role != .system }
+    }
 
     private let stt: WhisperLocalProvider?
     private let audio = AudioCapture()
     private let llm: LLMProvider
-    private var history: [ChatMessage] = []
     private var pollTimer: Timer?
 
     init() {
@@ -109,27 +112,26 @@ final class TranscriptStore: ObservableObject {
         guard !question.isEmpty, !isSending else { return }
 
         history.append(ChatMessage(role: .user, content: question))
-        isSending = true
-        answer = ""
         let historySnapshot = history
+        history.append(ChatMessage(role: .assistant, content: ""))
+        isSending = true
         debugLog("[store] submit() -> calling llm.answer, question='\(question)'")
 
         Task {
             do {
                 let text = try await llm.answer(history: historySnapshot) { partial in
                     Task { @MainActor in
-                        self.answer = partial
+                        self.setLastAssistant(partial)
                     }
                 }
                 debugLog("[store] llm.answer returned")
                 await MainActor.run {
-                    self.answer = text
-                    self.history.append(ChatMessage(role: .assistant, content: text))
+                    self.setLastAssistant(text)
                     self.isSending = false
                 }
             } catch {
                 await MainActor.run {
-                    self.answer = "Error: \(error.localizedDescription)"
+                    self.setLastAssistant("Error: \(error.localizedDescription)")
                     self.isSending = false
                 }
             }
@@ -137,5 +139,12 @@ final class TranscriptStore: ObservableObject {
 
         backgroundBuffer = ""
         editableText = ""
+    }
+
+    private func setLastAssistant(_ text: String) {
+        guard let index = history.indices.last, history[index].role == .assistant else { return }
+        var copy = history
+        copy[index].content = text
+        history = copy
     }
 }
