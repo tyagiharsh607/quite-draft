@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>InterviewAssist</string>
+    <string>QuietDraft</string>
     <key>CFBundleIdentifier</key>
-    <string>com.local.interview-assist</string>
+    <string>com.local.quietdraft</string>
     <key>CFBundleName</key>
-    <string>InterviewAssist</string>
+    <string>QuietDraft</string>
     <key>CFBundleDisplayName</key>
-    <string>InterviewAssist</string>
+    <string>QuietDraft</string>
     <key>CFBundleVersion</key>
     <string>1.0</string>
     <key>CFBundleShortVersionString</key>
@@ -22,5 +22,9 @@
     <true/>
     <key>LSUIElement</key>
     <false/>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>QuietDraft uses Screen Recording to hear system audio from other apps so it can transcribe what’s playing.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>QuietDraft captures system audio (not the microphone) so it can transcribe what’s playing.</string>
 </dict>
 </plist>

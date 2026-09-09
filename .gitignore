@@ -6,7 +6,6 @@ DerivedData/
 *.xcworkspace/xcuserdata/
 
 # Built app
-InterviewAssist.app/
 *.app
 *.dSYM/
 
@@ -24,4 +23,4 @@ InterviewAssist.app/
 *~
 
 # Local debug log (also written under $HOME)
-interview_assist_debug.log
+quietdraft_debug.log

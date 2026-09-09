@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "InterviewAssist",
+    name: "QuietDraft",
     platforms: [.macOS(.v13)],
     targets: [
         .systemLibrary(
@@ -11,9 +11,9 @@ let package = Package(
             providers: [.brew(["whisper-cpp"])]
         ),
         .executableTarget(
-            name: "InterviewAssist",
+            name: "QuietDraft",
             dependencies: ["CWhisper"],
-            path: "Sources/InterviewAssist",
+            path: "Sources/QuietDraft",
             cSettings: [
                 .unsafeFlags(["-I/opt/homebrew/Cellar/whisper-cpp/1.9.1/include", "-I/opt/homebrew/include"])
             ],

@@ -16,12 +16,19 @@ final class AudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
 
     var onSamples: (([Float]) -> Void)?
     var onError: ((Error) -> Void)?
+    var onStatus: ((String) -> Void)?
 
     func start() async throws {
-        let granted = CGRequestScreenCaptureAccess()
-        debugLog("[audio] CGRequestScreenCaptureAccess() -> \(granted)")
+        // Don't block on CGPreflight/CGRequest — on current macOS those often
+        // return false with no dialog for locally built apps. ScreenCaptureKit
+        // is what actually surfaces Screen Recording / System Audio prompts.
+        if !CGPreflightScreenCaptureAccess() {
+            debugLog("[audio] CGPreflight=false, calling CGRequestScreenCaptureAccess without waiting")
+            _ = CGRequestScreenCaptureAccess()
+        }
 
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+        onStatus?("Starting capture… allow QuietDraft if macOS asks.")
+        let content = try await shareableContentWithRetry()
         guard let display = content.displays.first else {
             throw NSError(domain: "AudioCapture", code: 1, userInfo: [NSLocalizedDescriptionKey: "No display available for audio capture"])
         }
@@ -40,7 +47,7 @@ final class AudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
 
         let stream = SCStream(filter: filter, configuration: config, delegate: self)
         try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: DispatchQueue(label: "audio.capture"))
-        try await stream.startCapture()
+        try await startCaptureWithRetry(stream)
         self.stream = stream
     }
 
@@ -100,6 +107,48 @@ final class AudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         onError?(error)
     }
+
+    private func shareableContentWithRetry() async throws -> SCShareableContent {
+        var lastError: Error?
+        for attempt in 1...12 {
+            do {
+                return try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+            } catch {
+                lastError = error
+                debugLog("[audio] SCShareableContent attempt \(attempt) failed: \(error)")
+                onStatus?("Allow QuietDraft if a permission dialog appears…")
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
+        throw NSError(
+            domain: "AudioCapture",
+            code: 3,
+            userInfo: [NSLocalizedDescriptionKey: lastError?.localizedDescription ?? Self.permissionHelp]
+        )
+    }
+
+    private func startCaptureWithRetry(_ stream: SCStream) async throws {
+        var lastError: Error?
+        for attempt in 1...10 {
+            do {
+                try await stream.startCapture()
+                return
+            } catch {
+                lastError = error
+                debugLog("[audio] startCapture attempt \(attempt) failed: \(error)")
+                onStatus?("Allow QuietDraft for System Audio if macOS asks…")
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
+        throw NSError(
+            domain: "AudioCapture",
+            code: 4,
+            userInfo: [NSLocalizedDescriptionKey: lastError?.localizedDescription ?? Self.permissionHelp]
+        )
+    }
+
+    private static let permissionHelp =
+        "macOS blocked capture. In System Settings → Privacy & Security → Screen Recording (and System Audio Recording), click +, add QuietDraft.app, turn it on, then quit and reopen QuietDraft."
 }
 
 private extension CMSampleBuffer {

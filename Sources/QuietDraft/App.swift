@@ -44,7 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        panel.title = "InterviewAssist"
+        panel.title = "QuietDraft"
         panel.isFloatingPanel = true
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = false
@@ -117,7 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-struct InterviewAssistApp: App {
+struct QuietDraftApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {

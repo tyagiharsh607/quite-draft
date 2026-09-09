@@ -11,18 +11,40 @@ enum Config {
     static let resumeOrJDContext: String? = value(for: "RESUME_OR_JD_CONTEXT")
 
     private static let dotEnv: [String: String] = {
-        let candidates = [
-            FileManager.default.currentDirectoryPath + "/.env",
-            Bundle.main.bundlePath + "/../.env",
-            NSHomeDirectory() + "/.config/interview-assist/.env"
-        ]
-        for path in candidates {
+        for path in envFileCandidates() {
             if let contents = try? String(contentsOfFile: path, encoding: .utf8) {
+                debugLog("[config] loaded env from \(path)")
                 return parse(contents)
             }
         }
+        debugLog("[config] no .env found; cwd=\(FileManager.default.currentDirectoryPath) bundle=\(Bundle.main.bundlePath)")
         return [:]
     }()
+
+    /// Finder / `open` / /Applications do not keep the project directory as cwd,
+    /// so walk up from the binary and also check ~/.config/quietdraft/.env.
+    private static func envFileCandidates() -> [String] {
+        var paths: [String] = [
+            FileManager.default.currentDirectoryPath + "/.env",
+            NSHomeDirectory() + "/.config/quietdraft/.env",
+        ]
+        var dirs: [URL] = []
+        if let exeDir = Bundle.main.executableURL?.deletingLastPathComponent() {
+            dirs.append(exeDir)
+        }
+        dirs.append(URL(fileURLWithPath: Bundle.main.bundlePath, isDirectory: true))
+        for start in dirs {
+            var dir = start
+            for _ in 0..<8 {
+                paths.append(dir.appendingPathComponent(".env").path)
+                let parent = dir.deletingLastPathComponent()
+                if parent.path == dir.path { break }
+                dir = parent
+            }
+        }
+        var seen = Set<String>()
+        return paths.filter { seen.insert($0).inserted }
+    }
 
     private static func parse(_ contents: String) -> [String: String] {
         var result: [String: String] = [:]

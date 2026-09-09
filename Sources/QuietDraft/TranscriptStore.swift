@@ -1,7 +1,7 @@
 import Foundation
 import Combine
 
-let debugLogPath = NSHomeDirectory() + "/interview_assist_debug.log"
+let debugLogPath = NSHomeDirectory() + "/quietdraft_debug.log"
 
 func debugLog(_ message: String) {
     let line = "\(Date()) \(message)\n"
@@ -62,6 +62,11 @@ final class TranscriptStore: ObservableObject {
             debugLog("[audio] ERROR: \(error)")
             Task { @MainActor in
                 self?.statusMessage = "Audio error: \(error.localizedDescription)"
+            }
+        }
+        audio.onStatus = { [weak self] message in
+            Task { @MainActor in
+                self?.statusMessage = message
             }
         }
         Task {
