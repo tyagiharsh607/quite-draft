@@ -11,4 +11,8 @@ protocol STTProvider: AnyObject {
 
     /// Consume (and clear) whatever has been recognized so far.
     func drainPendingText() -> String
+
+    /// Transcribe any audio that has not reached a full chunk yet, so Grab
+    /// includes speech up to this moment instead of lagging by a few seconds.
+    func flushPendingAudio() async
 }

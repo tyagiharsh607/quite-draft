@@ -15,7 +15,9 @@ final class WhisperLocalProvider: STTProvider {
     private var recognized: String = ""
 
     /// Re-run inference once at least this many new samples have queued up.
-    private let chunkSamples: Int = 16_000 * 3 // ~3s @ 16kHz
+    private let chunkSamples: Int = 16_000 // ~1s @ 16kHz
+    /// Ignore leftover audio shorter than this on Grab (Whisper hallucinates on tiny clips).
+    private let minFlushSamples: Int = 16_000 / 4 // ~250ms
 
     init?(modelPath: String) {
         ggml_backend_load_all()
@@ -57,6 +59,16 @@ final class WhisperLocalProvider: STTProvider {
     func discardBufferedAudio() {
         queue.async { [weak self] in
             self?.incoming.removeAll()
+        }
+    }
+
+    func flushPendingAudio() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async { [weak self] in
+                defer { continuation.resume() }
+                guard let self, self.incoming.count >= self.minFlushSamples else { return }
+                self.transcribeQueuedAudio()
+            }
         }
     }
 

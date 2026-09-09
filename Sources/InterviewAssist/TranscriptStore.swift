@@ -93,11 +93,19 @@ final class TranscriptStore: ObservableObject {
     /// Everything recognized since the last Submit/Clear, not yet shown in the editable box.
     private var backgroundBuffer: String = ""
 
-    /// Freeze the current background buffer into the editable box (non-destructive).
+    /// Freeze recognized speech into the editable box, including audio that
+    /// has not yet reached a full Whisper chunk.
     func grab() {
-        backgroundBuffer = WhisperText.sanitize(backgroundBuffer)
-        debugLog("[store] grab() -> '\(backgroundBuffer)'")
-        editableText = backgroundBuffer
+        Task {
+            await stt?.flushPendingAudio()
+            let flushed = WhisperText.sanitize(stt?.drainPendingText() ?? "")
+            if !flushed.isEmpty {
+                backgroundBuffer += (backgroundBuffer.isEmpty ? "" : " ") + flushed
+            }
+            backgroundBuffer = WhisperText.sanitize(backgroundBuffer)
+            debugLog("[store] grab() -> '\(backgroundBuffer)'")
+            editableText = backgroundBuffer
+        }
     }
 
     /// Wipe the background buffer without sending anything to the LLM.
