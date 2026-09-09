@@ -41,14 +41,10 @@ final class TranscriptStore: ObservableObject {
         }
         debugLog("[store] init, stt=\(stt != nil)")
 
-        if let resumeOrJD = Config.resumeOrJDContext, !resumeOrJD.isEmpty {
-            history.append(ChatMessage(role: .system, content:
-                "You are helping the candidate in a live technical interview. " +
-                "Use the following background when relevant:\n\(resumeOrJD)"))
-        } else {
-            history.append(ChatMessage(role: .system, content:
-                "You are helping a candidate in a live technical interview. Answer clearly and concisely."))
-        }
+        history.append(ChatMessage(
+            role: .system,
+            content: InterviewPrompt.systemMessage(resumeOrJD: Config.resumeOrJDContext)
+        ))
     }
 
     func startListening() {
