@@ -30,7 +30,7 @@ struct ContentView: View {
             }
         }
         .padding(12)
-        .frame(minWidth: 360, minHeight: 420)
+        .frame(minWidth: 640, minHeight: 360)
         .onAppear {
             debugLog("[ui] ContentView appeared, calling startListening()")
             store.startListening()

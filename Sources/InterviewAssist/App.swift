@@ -37,8 +37,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var tokens: [NSObjectProtocol] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let frame = Self.initialPanelFrame()
         let panel = OverlayPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 480),
+            contentRect: frame,
             styleMask: [.titled, .closable, .resizable, .miniaturizable, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -58,7 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .environmentObject(store)
                 .hiddenFromScreenCapture()
         )
-        panel.center()
+        panel.setFrame(frame, display: true)
         self.panel = panel
         pinPanel()
 
@@ -102,6 +103,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.level = .popUpMenu
         panel.sharingType = .none
         panel.orderFrontRegardless()
+    }
+
+    /// 80% of screen width, 60% of screen height, top edge 10% down from the top, centered horizontally.
+    private static func initialPanelFrame() -> NSRect {
+        let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let width = screen.width * 0.80
+        let height = screen.height * 0.60
+        let x = screen.midX - width / 2
+        let y = screen.maxY - (screen.height * 0.10) - height
+        return NSRect(x: x, y: y, width: width, height: height)
     }
 }
 
