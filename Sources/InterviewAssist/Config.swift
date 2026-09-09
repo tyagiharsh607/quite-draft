@@ -4,7 +4,7 @@ enum Config {
     static let openAIAPIKey: String = value(for: "OPENAI_API_KEY") ?? ""
     static let openAIModel: String = value(for: "OPENAI_MODEL") ?? "gpt-5"
     // Reasoning models (gpt-5 family) can take 1-2 minutes at default effort;
-    // "minimal" keeps latency low enough for live interview use.
+    // "minimal" is the lowest this model allows (it rejects "none").
     static let reasoningEffort: String = value(for: "OPENAI_REASONING_EFFORT") ?? "minimal"
     static let whisperModelPath: String = value(for: "WHISPER_MODEL_PATH")
         ?? (NSHomeDirectory() + "/.cache/hyperframes/whisper/models/ggml-small.en.bin")
