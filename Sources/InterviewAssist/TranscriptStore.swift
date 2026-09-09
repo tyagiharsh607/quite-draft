@@ -116,7 +116,11 @@ final class TranscriptStore: ObservableObject {
 
         Task {
             do {
-                let text = try await llm.answer(history: historySnapshot)
+                let text = try await llm.answer(history: historySnapshot) { partial in
+                    Task { @MainActor in
+                        self.answer = partial
+                    }
+                }
                 debugLog("[store] llm.answer returned")
                 await MainActor.run {
                     self.answer = text

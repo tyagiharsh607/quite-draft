@@ -12,7 +12,10 @@ final class OpenAIProvider: LLMProvider {
         self.reasoningEffort = reasoningEffort
     }
 
-    func answer(history: [ChatMessage]) async throws -> String {
+    func answer(
+        history: [ChatMessage],
+        onDelta: @escaping @Sendable (String) -> Void
+    ) async throws -> String {
         guard !apiKey.isEmpty else {
             throw LLMError.badResponse("Missing OPENAI_API_KEY (set it in .env)")
         }
@@ -24,31 +27,59 @@ final class OpenAIProvider: LLMProvider {
 
         var body: [String: Any] = [
             "model": model,
-            "messages": history.map { ["role": $0.role.rawValue, "content": $0.content] }
+            "messages": history.map { ["role": $0.role.rawValue, "content": $0.content] },
+            "stream": true
         ]
         if !reasoningEffort.isEmpty {
             body["reasoning_effort"] = reasoningEffort
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        debugLog("[llm] request start, model=\(model) effort=\(reasoningEffort) historyCount=\(history.count) bodyBytes=\(request.httpBody?.count ?? 0)")
+        debugLog("[llm] stream start, model=\(model) effort=\(reasoningEffort) historyCount=\(history.count) bodyBytes=\(request.httpBody?.count ?? 0)")
         let t0 = Date()
 
-        let (data, response) = try await session.data(for: request)
-        debugLog("[llm] request finished after \(Date().timeIntervalSince(t0))s")
+        let (bytes, response) = try await session.bytes(for: request)
 
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            let text = String(data: data, encoding: .utf8) ?? "unknown error"
-            throw LLMError.badResponse("OpenAI request failed: \(text)")
+        guard let http = response as? HTTPURLResponse else {
+            throw LLMError.badResponse("Invalid response from OpenAI")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            var errorBody = ""
+            for try await line in bytes.lines { errorBody += line }
+            throw LLMError.badResponse("OpenAI request failed: \(errorBody.isEmpty ? "HTTP \(http.statusCode)" : errorBody)")
         }
 
-        struct Choice: Decodable { let message: MessageBody }
-        struct MessageBody: Decodable { let content: String }
-        struct ChatResponse: Decodable { let choices: [Choice] }
+        struct StreamChunk: Decodable {
+            struct Choice: Decodable {
+                struct Delta: Decodable { let content: String? }
+                let delta: Delta
+            }
+            let choices: [Choice]
+        }
 
-        let decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
-        guard let text = decoded.choices.first?.message.content else {
+        var assembled = ""
+        var sawFirstToken = false
+        for try await line in bytes.lines {
+            guard line.hasPrefix("data:") else { continue }
+            let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+            if payload == "[DONE]" { break }
+            guard let data = payload.data(using: .utf8),
+                  let chunk = try? JSONDecoder().decode(StreamChunk.self, from: data),
+                  let piece = chunk.choices.first?.delta.content,
+                  !piece.isEmpty
+            else { continue }
+
+            if !sawFirstToken {
+                sawFirstToken = true
+                debugLog("[llm] first token after \(Date().timeIntervalSince(t0))s")
+            }
+            assembled += piece
+            onDelta(assembled)
+        }
+
+        debugLog("[llm] stream finished after \(Date().timeIntervalSince(t0))s, chars=\(assembled.count)")
+        guard !assembled.isEmpty else {
             throw LLMError.badResponse("Empty response from OpenAI")
         }
-        return text
+        return assembled
     }
 }

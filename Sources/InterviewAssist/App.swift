@@ -51,6 +51,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.level = .popUpMenu
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.sharingType = .none
+        panel.isOpaque = false
+        panel.alphaValue = 0.85
         panel.contentView = NSHostingView(rootView:
             ContentView()
                 .environmentObject(store)
