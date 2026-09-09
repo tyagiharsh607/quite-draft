@@ -1,0 +1,27 @@
+# SwiftPM / Xcode
+.build/
+.swiftpm/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# Built app
+InterviewAssist.app/
+*.app
+*.dSYM/
+
+# Secrets and local signing material
+.env
+.certs/
+*.p12
+*.pem
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Local debug log (also written under $HOME)
+interview_assist_debug.log
