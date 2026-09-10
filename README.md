@@ -23,8 +23,8 @@ Requires **macOS 13+** and an **Apple Silicon** Mac (Homebrew paths assume `/opt
 ## 1. Clone and install build tools
 
 ```bash
-git clone <this-repo-url>
-cd hidden-answer-machine   # or whatever you named the folder
+git clone https://github.com/tyagiharsh607/quite-draft
+cd quite-draft   
 ```
 
 ```bash
