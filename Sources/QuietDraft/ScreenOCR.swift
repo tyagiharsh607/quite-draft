@@ -77,12 +77,14 @@ enum OverlayChrome {
 }
 
 enum ScreenOCR {
-    static func readQuestion() async throws -> String {
+    /// OCR pixels that are actually on screen. No browser DOM / accessibility.
+    static func readVisible() async throws -> String {
         try await OverlayChrome.withHidden {
-            let images = try await captureDisplays()
+            let images = try await captureVisible()
             var chunks: [String] = []
             for image in images {
                 debugLog("[scan] image \(image.width)x\(image.height)")
+                saveDebug(image)
                 let lines = try await recognize(image)
                 debugLog("[scan] ocr lines=\(lines.count)")
                 let text = extractQuestion(from: lines)
@@ -95,84 +97,58 @@ enum ScreenOCR {
         }
     }
 
-    private static func captureDisplays() async throws -> [CGImage] {
+    /// Framebuffer first (what you see, including Chrome), then ScreenCaptureKit.
+    private static func captureVisible() async throws -> [CGImage] {
+        var images: [CGImage] = []
+        let screens = NSScreen.screens.sorted { a, b in
+            let preferred = OverlayChrome.parkedDisplayID
+            let aid = a.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+            let bid = b.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+            return (aid == preferred ? 0 : 1) < (bid == preferred ? 0 : 1)
+        }
+        for screen in screens {
+            guard let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else {
+                continue
+            }
+            if let image = CGDisplayCreateImage(displayID), image.width > 32, image.height > 32 {
+                debugLog("[scan] CGDisplayCreateImage \(displayID) \(image.width)x\(image.height)")
+                images.append(image)
+            }
+        }
+        if images.isEmpty,
+           let image = CGWindowListCreateImage(
+            .null,
+            .optionOnScreenOnly,
+            kCGNullWindowID,
+            [.bestResolution, .boundsIgnoreFraming]
+           ), image.width > 32, image.height > 32 {
+            debugLog("[scan] CGWindowListCreateImage \(image.width)x\(image.height)")
+            images.append(image)
+        }
+        if !images.isEmpty { return images }
+
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard !content.displays.isEmpty else { throw ScreenOCRError.noDisplay }
-
         let mine = (Bundle.main.bundleIdentifier ?? "com.local.quietdraft").lowercased()
         let myWindowNumber = await MainActor.run { OverlayChrome.panel?.windowNumber ?? 0 }
-        let excludedWindows = content.windows.filter { window in
+        let excluded = content.windows.filter { window in
             let bid = (window.owningApplication?.bundleIdentifier ?? "").lowercased()
             if bid == mine || bid.contains("quietdraft") { return true }
             if window.windowID == CGWindowID(myWindowNumber) { return true }
-            if (window.title ?? "").localizedCaseInsensitiveContains("QuietDraft") { return true }
             return false
         }
-
-        let preferredID: CGDirectDisplayID?
-        if let parked = OverlayChrome.parkedDisplayID {
-            preferredID = parked
-        } else {
-            preferredID = await MainActor.run { () -> CGDirectDisplayID? in
-                let screen = OverlayChrome.panel?.screen ?? NSScreen.main
-                return screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
-            }
-        }
-        var images: [CGImage] = []
         var lastError: Error?
-
-        let skipBundles = [
-            "com.apple.dock", "com.apple.controlcenter", "com.apple.notificationcenterui",
-            "com.apple.wallpaper", "com.apple.windowmanager", "com.apple.loginwindow",
-            "com.apple.finder"
-        ]
-        let browserBundles = ["chrome", "safari", "brave", "edge", "firefox", "arc"]
-        let windowCandidates = content.windows
-            .filter { window in
-                guard window.isOnScreen else { return false }
-                let bid = (window.owningApplication?.bundleIdentifier ?? "").lowercased()
-                if bid.contains("quietdraft") || window.windowID == CGWindowID(myWindowNumber) { return false }
-                if skipBundles.contains(where: { bid.hasPrefix($0) || bid.contains($0) }) { return false }
-                let frame = window.frame
-                return frame.width > 400 && frame.height > 300
-            }
-            .sorted { a, b in
-                let ab = (a.owningApplication?.bundleIdentifier ?? "").lowercased()
-                let bb = (b.owningApplication?.bundleIdentifier ?? "").lowercased()
-                let aBrowser = browserBundles.contains(where: { ab.contains($0) })
-                let bBrowser = browserBundles.contains(where: { bb.contains($0) })
-                if aBrowser != bBrowser { return aBrowser }
-                return (a.frame.width * a.frame.height) > (b.frame.width * b.frame.height)
-            }
-        for window in windowCandidates.prefix(2) {
+        for display in content.displays {
             do {
-                if let image = try await capture(window: window) {
+                if let image = try await capture(display: display, excludingWindows: excluded) {
                     images.append(image)
-                    saveDebug(image)
-                }
-            } catch {
-                lastError = error
-                debugLog("[scan] window \(window.windowID) \(window.owningApplication?.bundleIdentifier ?? "") failed: \(error)")
-            }
-        }
-
-        let displays = content.displays.sorted { a, b in
-            (a.displayID == preferredID ? 0 : 1) < (b.displayID == preferredID ? 0 : 1)
-        }
-        for display in displays.prefix(1) {
-            do {
-                if let image = try await capture(display: display, excludingWindows: excludedWindows) {
-                    images.append(image)
-                    saveDebug(image)
                 }
             } catch {
                 lastError = error
                 debugLog("[scan] display \(display.displayID) failed: \(error)")
             }
         }
-        if images.isEmpty {
-            throw lastError ?? ScreenOCRError.noImage
-        }
+        if images.isEmpty { throw lastError ?? ScreenOCRError.noImage }
         return images
     }
 
@@ -187,22 +163,7 @@ enum ScreenOCR {
         let size = pixelSize(for: filter, display: display)
         config.width = size.width
         config.height = size.height
-        debugLog("[scan] capture display=\(display.displayID) \(size.width)x\(size.height) excludeWindows=\(excludingWindows.count)")
-        return try await grabFrame(filter: filter, configuration: config)
-    }
-
-    private static func capture(window: SCWindow) async throws -> CGImage? {
-        let filter = SCContentFilter(desktopIndependentWindow: window)
-        let config = SCStreamConfiguration()
-        config.capturesAudio = false
-        config.showsCursor = false
-        config.pixelFormat = kCVPixelFormatType_32BGRA
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 30)
-        config.queueDepth = 3
-        let scale = NSScreen.main?.backingScaleFactor ?? 2
-        config.width = max(2, Int((window.frame.width * scale).rounded()))
-        config.height = max(2, Int((window.frame.height * scale).rounded()))
-        debugLog("[scan] capture window=\(window.owningApplication?.applicationName ?? "?") \(config.width)x\(config.height)")
+        debugLog("[scan] capture display=\(display.displayID) \(size.width)x\(size.height)")
         return try await grabFrame(filter: filter, configuration: config)
     }
 

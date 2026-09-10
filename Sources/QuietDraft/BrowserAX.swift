@@ -2,87 +2,61 @@ import ApplicationServices
 import AppKit
 import Foundation
 
-/// Reads on-screen browser text via Accessibility + Chrome AppleScript
-/// properties that do not need “Allow JavaScript from Apple Events”.
+/// Reads on-screen browser *page* text via Accessibility + the active tab title.
+/// Does not dump tab strips, bookmarks, or the address bar.
 enum BrowserAX {
-    static func readVisible() throws -> String? {
+    static func readVisible(bundleID: String) throws -> String? {
         if !AXIsProcessTrustedWithOptions([
             kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true
         ] as CFDictionary) {
             throw BrowserPageError.needsAccessibility
         }
 
-        var chunks: [String] = []
+        let title = bundleID.lowercased().contains("chrome") ? chromeTabTitle() : nil
+        var page = ""
 
-        if let meta = chromeTabMeta(), !meta.isEmpty {
-            debugLog("[scan] chrome tab meta chars=\(meta.count)")
-            chunks.append(meta)
+        for pid in browserPIDs(matching: bundleID) {
+            let text = readPage(pid: pid)
+            debugLog("[scan] ax pid=\(pid) page chars=\(text.count)")
+            if text.count > page.count { page = text }
         }
 
-        if let sys = systemEventsTexts(), !sys.isEmpty {
-            debugLog("[scan] system events chars=\(sys.count)")
-            chunks.append(sys)
+        var parts: [String] = []
+        // Tab title is useful when the page AX tree is empty (YouTube).
+        // Skip it once we already have real page body — it is chrome, not the question.
+        if let title, page.count < 400, !page.contains(title) {
+            parts.append(title)
         }
+        if !page.isEmpty { parts.append(page) }
 
-        let browsers = [
-            "com.google.Chrome",
-            "com.google.Chrome.canary",
-            "com.brave.Browser",
-            "com.microsoft.edgemac",
-            "company.thebrowser.Browser",
-            "com.apple.Safari",
-        ]
-        for bundle in browsers {
-            guard let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundle }) else {
-                continue
-            }
-            let text = read(pid: app.processIdentifier)
-            debugLog("[scan] ax \(bundle) chars=\(text.count)")
-            if !text.isEmpty { chunks.append(text) }
-        }
-
-        let combined = uniqued(chunks.flatMap { $0.components(separatedBy: "\n") })
+        let combined = uniqued(parts.flatMap { $0.components(separatedBy: "\n") })
             .filter { !isChromeUI($0) }
             .joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return combined.count >= 20 ? cap(combined) : nil
     }
 
-    /// Title and URL — Chrome allows this without the JavaScript-from-Apple-Events flag.
-    private static func chromeTabMeta() -> String? {
-        runAppleScript("""
+    /// Active tab title only — no URL, no other tabs. Does not need JS-from-Apple-Events.
+    private static func chromeTabTitle() -> String? {
+        let text = runAppleScript("""
             tell application "Google Chrome"
               if (count of windows) is 0 then return ""
-              set t to title of active tab of window 1
-              set u to URL of active tab of window 1
-              return t & linefeed & u
+              return title of active tab of window 1
             end tell
             """)
+        guard let text, !isChromeUI(text) else { return nil }
+        debugLog("[scan] chrome tab title chars=\(text.count)")
+        return text
     }
 
-    private static func systemEventsTexts() -> String? {
-        runAppleScript("""
-            tell application "System Events"
-              if not (exists process "Google Chrome") then return ""
-              tell process "Google Chrome"
-                if (count of windows) is 0 then return ""
-                tell window 1
-                  set collected to {}
-                  try
-                    set collected to collected & (value of every static text)
-                  end try
-                  try
-                    set collected to collected & (name of every static text)
-                  end try
-                  try
-                    set collected to collected & (value of every text field)
-                  end try
-                end tell
-                set AppleScript's text item delimiters to linefeed
-                return collected as text
-              end tell
-            end tell
-            """)
+    private static func browserPIDs(matching bundleID: String) -> [pid_t] {
+        let apps = NSWorkspace.shared.runningApplications.filter { app in
+            guard let bid = app.bundleIdentifier else { return false }
+            if bid == bundleID { return true }
+            if bundleID.hasPrefix("com.google.Chrome"), bid.hasPrefix("com.google.Chrome") { return true }
+            return false
+        }
+        return apps.map(\.processIdentifier)
     }
 
     private static func runAppleScript(_ source: String) -> String? {
@@ -97,37 +71,40 @@ enum BrowserAX {
         return (text?.isEmpty == false) ? text : nil
     }
 
-    private static func read(pid: pid_t) -> String {
+    /// Page document only — never the window chrome.
+    private static func readPage(pid: pid_t) -> String {
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
         AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
-        Thread.sleep(forTimeInterval: 0.6)
 
         var best = ""
-        let windows = children(of: app, attribute: kAXWindowsAttribute as CFString)
-        debugLog("[scan] ax windows=\(windows.count)")
-        for window in windows {
-            logTopRoles(window)
+        for window in focusedThenAllWindows(app) {
             let webTexts = allWebAreas(window).map { web -> String in
                 var lines: [String] = []
-                collect(web, into: &lines, depth: 0, includeFields: false)
+                collectPage(web, into: &lines, depth: 0)
                 return uniqued(lines).filter { !isChromeUI($0) }.joined(separator: "\n")
             }
             if let richest = webTexts.max(by: { $0.count < $1.count }), richest.count > best.count {
                 best = richest
             }
-            var windowLines: [String] = []
-            collect(window, into: &windowLines, depth: 0, includeFields: false)
-            let windowText = uniqued(windowLines).filter { !isChromeUI($0) }.joined(separator: "\n")
-            if windowText.count > best.count { best = windowText }
         }
         return best
     }
 
-    private static func logTopRoles(_ window: AXUIElement) {
-        let kids = children(of: window)
-        let roles = kids.prefix(12).map { role(of: $0) }.joined(separator: ",")
-        debugLog("[scan] ax window children=\(kids.count) roles=\(roles)")
+    private static func focusedThenAllWindows(_ app: AXUIElement) -> [AXUIElement] {
+        var ordered: [AXUIElement] = []
+        var focused: CFTypeRef?
+        if AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &focused) == .success,
+           let focused {
+            ordered.append(asElement(focused))
+        }
+        for window in children(of: app, attribute: kAXWindowsAttribute as CFString) {
+            if !ordered.contains(where: { CFEqual($0, window) }) {
+                ordered.append(window)
+            }
+        }
+        debugLog("[scan] ax windows=\(ordered.count)")
+        return ordered
     }
 
     private static func allWebAreas(_ root: AXUIElement) -> [AXUIElement] {
@@ -167,28 +144,28 @@ enum BrowserAX {
         return []
     }
 
-    private static func collect(_ element: AXUIElement, into lines: inout [String], depth: Int, includeFields: Bool) {
+    private static func collectPage(_ element: AXUIElement, into lines: inout [String], depth: Int) {
         guard depth < 60 else { return }
         let r = role(of: element)
-        let skipRoles = ["AXToolbar", "AXTabGroup", "AXMenuBar", "AXMenu"]
+        // Chrome still nests toolbar/tab junk under some web areas.
+        let skipRoles = [
+            "AXToolbar", "AXTabGroup", "AXTab", "AXMenuBar", "AXMenu",
+            "AXMenuButton", "AXPopUpButton",
+        ]
         if skipRoles.contains(r) { return }
 
-        let allowed = ["AXStaticText", "AXTextArea", "AXHeading", "AXLink", "AXWebArea", "AXDocument", "AXGroup"]
-        let fields = includeFields ? ["AXTextField"] : []
-        if (allowed + fields).contains(r) {
-            if r == "AXTextField", let desc = stringAttr(element, kAXDescriptionAttribute as CFString), isChromeUI(desc) {
-                // skip omnibox
-            } else {
-                if let value = stringAttr(element, kAXValueAttribute as CFString) { append(value, to: &lines) }
-                if let title = stringAttr(element, kAXTitleAttribute as CFString) { append(title, to: &lines) }
-                if r != "AXTextField", let desc = stringAttr(element, kAXDescriptionAttribute as CFString) {
-                    append(desc, to: &lines)
-                }
-            }
+        let allowed = [
+            "AXStaticText", "AXTextArea", "AXHeading", "AXLink",
+            "AXWebArea", "AXDocument", "AXGroup", "AXButton",
+            "AXRadioButton", "AXCheckBox", "AXList", "AXListItem",
+        ]
+        if allowed.contains(r) {
+            if let value = stringAttr(element, kAXValueAttribute as CFString) { append(value, to: &lines) }
+            if let title = stringAttr(element, kAXTitleAttribute as CFString) { append(title, to: &lines) }
         }
 
         for child in children(of: element) {
-            collect(child, into: &lines, depth: depth + 1, includeFields: includeFields)
+            collectPage(child, into: &lines, depth: depth + 1)
         }
     }
 
@@ -220,8 +197,9 @@ enum BrowserAX {
         let banned = [
             "address and search bar", "google chrome", "new tab", "close",
             "back", "forward", "reload", "extensions", "bookmark this tab",
+            "bookmarks", "bookmark manager", "bookmarks bar",
             "customize and control google chrome", "this tab is playing audio",
-            "search google or type a url",
+            "search google or type a url", "tab",
         ]
         if banned.contains(lower) { return true }
         if lower.hasPrefix("http://") || lower.hasPrefix("https://") { return true }

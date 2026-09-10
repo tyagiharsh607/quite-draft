@@ -28,8 +28,8 @@ enum BrowserPage {
         let script: String
     }
 
-    static func readVisible() async throws -> String? {
-        if let ax = try BrowserAX.readVisible() {
+    static func readVisible(bundleID: String) async throws -> String? {
+        if let ax = try BrowserAX.readVisible(bundleID: bundleID) {
             debugLog("[scan] using accessibility text chars=\(ax.count)")
             return ax
         }
@@ -37,7 +37,7 @@ enum BrowserPage {
         let running = Set(
             NSWorkspace.shared.runningApplications.compactMap { $0.bundleIdentifier }
         )
-        let targets = Self.targets.filter { running.contains($0.bundleID) }
+        let targets = Self.targets.filter { $0.bundleID == bundleID && running.contains($0.bundleID) }
         guard !targets.isEmpty else { return nil }
 
         var permissionApp: String?
