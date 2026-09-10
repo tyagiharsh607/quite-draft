@@ -23,8 +23,10 @@
     <key>LSUIElement</key>
     <false/>
     <key>NSScreenCaptureUsageDescription</key>
-    <string>QuietDraft uses Screen Recording to hear system audio from other apps so it can transcribe what’s playing.</string>
+    <string>QuietDraft uses Screen Recording to hear system audio from other apps and to read questions visible on your screen.</string>
     <key>NSAudioCaptureUsageDescription</key>
     <string>QuietDraft captures system audio (not the microphone) so it can transcribe what’s playing.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>QuietDraft reads the visible question from your browser when you click Scan screen.</string>
 </dict>
 </plist>

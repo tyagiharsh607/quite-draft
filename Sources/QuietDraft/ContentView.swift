@@ -21,10 +21,15 @@ struct ContentView: View {
 
             HStack {
                 Button("Grab") { store.grab() }
+                    .disabled(store.isScanning)
+                Button("Scan screen") { store.scanScreen() }
+                    .disabled(store.isScanning || store.isSending)
                 Button("Clear") { store.clear() }
+                    .disabled(store.isScanning)
                 Button("Submit") { store.submit() }
                     .keyboardShortcut(.return, modifiers: [])
-                if store.isSending {
+                    .disabled(store.isScanning)
+                if store.isSending || store.isScanning {
                     ProgressView().controlSize(.small)
                 }
             }

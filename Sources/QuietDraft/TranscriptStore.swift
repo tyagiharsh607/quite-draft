@@ -20,6 +20,7 @@ func debugLog(_ message: String) {
 final class TranscriptStore: ObservableObject {
     @Published var editableText: String = ""
     @Published var isSending: Bool = false
+    @Published var isScanning: Bool = false
     @Published var statusMessage: String = ""
     @Published private(set) var history: [ChatMessage] = []
 
@@ -114,6 +115,49 @@ final class TranscriptStore: ObservableObject {
         backgroundBuffer = ""
         editableText = ""
         stt?.discardBufferedAudio()
+    }
+
+    /// Read the question from the browser page (Chrome GPU content is invisible
+    /// to screenshots), falling back to screen OCR.
+    func scanScreen() {
+        guard !isScanning, !isSending else { return }
+        isScanning = true
+        statusMessage = "Scanning…"
+        debugLog("[store] scanScreen() start")
+        Task {
+            var permissionHint: String?
+            do {
+                if let page = try await BrowserPage.readVisible(), page.count >= 40 {
+                    editableText = page
+                    statusMessage = "Scanned page — edit if needed, then Submit"
+                    debugLog("[store] scanScreen() browser -> \(page.prefix(120))")
+                    isScanning = false
+                    return
+                }
+            } catch let error as BrowserPageError {
+                statusMessage = error.localizedDescription
+                debugLog("[store] browser read failed: \(error)")
+                isScanning = false
+                return
+            } catch {
+                permissionHint = error.localizedDescription
+                debugLog("[store] browser read failed: \(error)")
+            }
+
+            do {
+                await audio.stop()
+                let question = try await ScreenOCR.readQuestion()
+                try await audio.start()
+                editableText = question
+                statusMessage = permissionHint ?? "Scanned — edit if needed, then Submit"
+                debugLog("[store] scanScreen() ocr -> \(question.prefix(120))")
+            } catch {
+                try? await audio.start()
+                statusMessage = permissionHint ?? "Scan failed: \(error.localizedDescription)"
+                debugLog("[store] scanScreen failed: \(error)")
+            }
+            isScanning = false
+        }
     }
 
     /// Send the current editable text to the LLM, then clear the buffer.

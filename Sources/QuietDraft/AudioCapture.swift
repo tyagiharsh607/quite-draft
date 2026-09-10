@@ -19,6 +19,7 @@ final class AudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     var onStatus: ((String) -> Void)?
 
     func start() async throws {
+        if stream != nil { return }
         // Don't block on CGPreflight/CGRequest — on current macOS those often
         // return false with no dialog for locally built apps. ScreenCaptureKit
         // is what actually surfaces Screen Recording / System Audio prompts.

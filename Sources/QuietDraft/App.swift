@@ -61,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         panel.setFrame(frame, display: true)
         self.panel = panel
+        OverlayChrome.panel = panel
         pinPanel()
 
         for window in NSApp.windows where window !== panel {
@@ -94,11 +95,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
+        // Scan used to orderOut the overlay, which looks like “last window closed”
+        // and terminates the app (then ggml aborts on the way down).
+        !OverlayChrome.isHiding
     }
 
     private func pinPanel() {
-        guard let panel else { return }
+        guard let panel, !OverlayChrome.isHiding else { return }
         panel.hidesOnDeactivate = false
         panel.level = .popUpMenu
         panel.sharingType = .none
