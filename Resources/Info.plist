@@ -28,5 +28,7 @@
     <string>QuietDraft captures system audio (not the microphone) so it can transcribe what’s playing.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>QuietDraft reads the visible question from your browser when you click Scan screen.</string>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>QuietDraft uses Accessibility to read on-screen text from other apps when you click Scan screen.</string>
 </dict>
 </plist>

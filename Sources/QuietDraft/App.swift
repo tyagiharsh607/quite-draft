@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ApplicationServices
 
 /// Sets NSWindow.sharingType = .none on the enclosing window, which excludes
 /// it from screen recording/capture APIs (Meet, Zoom, OBS, etc.) system-wide,
@@ -63,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.panel = panel
         OverlayChrome.panel = panel
         pinPanel()
+        requestAccessibility()
 
         for window in NSApp.windows where window !== panel {
             window.orderOut(nil)
@@ -98,6 +100,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Scan used to orderOut the overlay, which looks like “last window closed”
         // and terminates the app (then ggml aborts on the way down).
         !OverlayChrome.isHiding
+    }
+
+    /// Registers QuietDraft in System Settings → Accessibility. The app does
+    /// not appear in that list until this prompt has been shown.
+    private func requestAccessibility() {
+        let trusted = AXIsProcessTrustedWithOptions([
+            kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true
+        ] as CFDictionary)
+        debugLog("[a11y] trusted=\(trusted)")
     }
 
     private func pinPanel() {
